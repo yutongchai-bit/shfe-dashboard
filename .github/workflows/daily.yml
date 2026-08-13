@@ -1,8 +1,8 @@
 name: Daily SHFE data refresh
 on:
   schedule:
-    - cron: '45 10 * * 1-5'   # 10:45 UTC = 18:45 Beijing, after SHFE publishes rankings
-  workflow_dispatch: {}        # manual "Run workflow" button
+    - cron: '45 10 * * 1-5'
+  workflow_dispatch: {}
 permissions:
   contents: write
 jobs:
@@ -14,6 +14,12 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas requests
+      - name: Ensure chart libraries (vendor/)
+        run: |
+          mkdir -p vendor
+          [ -f vendor/chart.umd.js ] || curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js -o vendor/chart.umd.js
+          [ -f vendor/gridjs.umd.js ] || curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js -o vendor/gridjs.umd.js
+          [ -f vendor/gridjs.css ] || curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css -o vendor/gridjs.css
       - run: python update_data.py
       - name: Commit and push
         run: |
