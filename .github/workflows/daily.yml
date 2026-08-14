@@ -28,11 +28,13 @@ jobs:
           if [ ! -f vendor/chart.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js -o vendor/chart.umd.js; fi
           if [ ! -f vendor/gridjs.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js -o vendor/gridjs.umd.js; fi
           if [ ! -f vendor/gridjs.css ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css -o vendor/gridjs.css; fi
-      - run: python update_data.py
+- name: Update data (non-fatal if source unreachable)
+        continue-on-error: true
+        run: python update_data.py
       - name: Commit and push
         run: |
           git config user.name "shfe-bot"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet || git commit -m "Daily data refresh $(date -u +%F)"
+          git diff --cached --quiet || git commit -m "Daily refresh $(date -u +%F)"
           git push
