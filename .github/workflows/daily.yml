@@ -14,12 +14,20 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pandas requests
-      - name: Ensure chart libraries (vendor/)
+      - name: Repair layout and fetch chart libraries
         run: |
-          mkdir -p vendor
-          [ -f vendor/chart.umd.js ] || curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js -o vendor/chart.umd.js
-          [ -f vendor/gridjs.umd.js ] || curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js -o vendor/gridjs.umd.js
-          [ -f vendor/gridjs.css ] || curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css -o vendor/gridjs.css
+          mkdir -p data scripts vendor
+          for f in master_positions.csv master_totals.csv tracked_brokers.json delivery_record.json artifact_baseline.json fresh_board_al.json fresh_board_cu.json fresh_board_zn.json; do
+            if [ -f "$f" ]; then mv "$f" data/; fi
+          done
+          mv fresh_positions_*.csv data/ 2>/dev/null || true
+          mv fresh_totals_*.csv data/ 2>/dev/null || true
+          if [ -f refresh_pipeline.py ]; then mv refresh_pipeline.py scripts/; fi
+          if [ -f artifact_template.html ]; then mv artifact_template.html scripts/; fi
+          if [ -f gridjs.umd.js ]; then mv gridjs.umd.js vendor/; fi
+          if [ ! -f vendor/chart.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js -o vendor/chart.umd.js; fi
+          if [ ! -f vendor/gridjs.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js -o vendor/gridjs.umd.js; fi
+          if [ ! -f vendor/gridjs.css ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css -o vendor/gridjs.css; fi
       - run: python update_data.py
       - name: Commit and push
         run: |
