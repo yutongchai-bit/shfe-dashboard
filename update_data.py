@@ -27,7 +27,7 @@ def get(params):
             print('retry', a, e, file=sys.stderr); time.sleep(3)
     return None
 
-def pages(report, columns, flt, ps=300, mx=10):
+def pages(report, columns, flt, ps=297, mx=10):
     rows = []
     for p in range(1, mx+1):
         res = get({'reportName':report,'columns':columns,'pageSize':ps,'pageNumber':p,'filter':flt})
