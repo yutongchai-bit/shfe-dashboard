@@ -2,31 +2,32 @@ name: Daily SHFE data refresh
 on:
   schedule:
     - cron: '45 10 * * 1-5'
-  workflow_dispatch: {}
-permissions:
-  contents: write
+  workflow_dispatch:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - run: pip install pandas requests
-      - name: Chart libraries
+          python-version: '3.11'
+      - run: pip install requests pandas numpy
+      - name: Ensure vendor libs
         run: |
           mkdir -p vendor
-          if [ ! -f vendor/chart.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js -o vendor/chart.umd.js; fi
-          if [ ! -f vendor/gridjs.umd.js ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js -o vendor/gridjs.umd.js; fi
-          if [ ! -f vendor/gridjs.css ]; then curl -sL https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css -o vendor/gridjs.css; fi
-      - name: Update data
-        continue-on-error: true
+          [ -s vendor/chart.umd.js ] || curl -sL -o vendor/chart.umd.js https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js
+          [ -s vendor/gridjs.umd.js ] || curl -sL -o vendor/gridjs.umd.js https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js
+          [ -s vendor/gridjs.css ] || curl -sL -o vendor/gridjs.css https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css
+      - name: Premium scrape (optional)
+        run: python premium_update.py || true
+      - name: Fetch data and rebuild page
         run: python update_data.py
       - name: Commit and push
         run: |
-          git config user.name "shfe-bot"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "auto-refresh"
+          git config user.email "actions@github.com"
           git add -A
-          git diff --cached --quiet || git commit -m "Daily refresh $(date -u +%F)"
+          git commit -m "daily refresh" || echo "no changes"
           git push
