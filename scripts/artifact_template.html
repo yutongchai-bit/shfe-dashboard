@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SHFE Broker OI vs Physical Premium — Live</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/gridjs.umd.js" integrity="sha384-/XXDzxe4FsGiAe50i/u9pY/Vy/uX654MHB1xoc1BJNnH1WXHhqHga9g3q5tF4gj7" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@5.0.2/dist/theme/mermaid.min.css" integrity="sha384-jZvDSsmGB9oGGT/4l9bHXGoAv1OxvG/cFmSo0dZaSqmBgvQTKDBFAMftlXTmMbNW" crossorigin="anonymous">
+<style>
+  :root { color-scheme: light; }
+  body { margin:0; background:#f6f8fb; color:#1c2733; font:13.5px/1.5 'Segoe UI',Arial,sans-serif; }
+  header { padding:16px 24px 4px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#5a6b7f; font-size:12px; max-width:1100px; }
+  .controls { display:flex; gap:12px; padding:10px 24px; flex-wrap:wrap; align-items:center; }
+  select,button,input { background:#fff; color:#1c2733; border:1px solid #c9d4e0; border-radius:6px; padding:6px 10px; font-size:13px; }
+  button { cursor:pointer; }
+  .card { background:#fff; border:1px solid #e3e9f0; border-radius:10px; padding:12px 14px; margin:0 24px 14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:0 24px 14px; }
+  .grid2 .card { margin:0; }
+  @media (max-width:1100px){ .grid2 { grid-template-columns:1fr; } }
+  .card h3 { margin:2px 0 8px; font-size:14px; }
+  .chartbox { position:relative; height:300px; }
+  .chartbox2 { position:relative; height:360px; }
+  .kpis { display:flex; gap:12px; flex-wrap:wrap; padding:2px 24px 10px; }
+  .kpi { background:#fff; border:1px solid #e3e9f0; border-radius:10px; padding:8px 16px; min-width:140px; }
+  .kpi .v { font-size:19px; font-weight:700; }
+  .kpi .l { color:#5a6b7f; font-size:11px; }
+  .status { font-size:11.5px; color:#5a6b7f; padding:0 24px 8px; }
+  .status .ok { color:#1b7f3b; } .status .err { color:#b3261e; }
+  .note { color:#5a6b7f; font-size:11px; margin-top:6px; }
+  .warn { color:#9a6b00; font-size:11.5px; margin:2px 0 6px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:#e8eef6; }
+  .bset { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+  .bset label { display:flex; align-items:center; gap:4px; background:#f2f6fa; border:1px solid #dbe4ee; border-radius:6px; padding:3px 8px; font-size:12.5px; }
+  .bset label.sm { background:#fdeeea; border-color:#f3c9bf; }
+  .gridjs-wrapper { box-shadow:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SHFE Broker Positioning vs Physical Premium — Live</h1>
+  <div class="sub">Daily SHFE top-20 member rankings (via EastMoney mirror). <b>Backwardation</b> = front-month − 2nd-month
+  settlement spread (¥/t, always available, a physical-tightness proxy). <b>Premium</b> = your own physical premium series
+  (e.g. SMM Yangshan / domestic spot premium) uploaded as CSV — stored on this device. Broker books mix house and client flow —
+  smelter attribution (Jinrui→JCC, 铜冠金源→Tongling, 中金岭南→zinc) is market convention, not disclosure.</div>
+</header>
+<div class="controls">
+  <label>Metal <select id="metal"><option>CU</option><option>AL</option><option>ZN</option></select></label>
+  <label>Period <select id="period">
+    <option value="all">All available</option>
+    <option value="6m">Last 6 months</option>
+    <option value="3m" selected>Last 3 months</option>
+    <option value="1m">Last month</option>
+    <option value="2w">Last 2 weeks</option>
+  </select></label>
+  <label>L/S scope <select id="lsscope"></select></label>
+  <label>Premium CSV (date,premium) <input type="file" id="csv" accept=".csv"></label>
+  <button id="clearovr" style="display:none">Clear premium</button>
+  <span id="ovr" class="pill">premium: not loaded</span>
+</div>
+<div class="status" id="status">Loading…</div>
+<div class="kpis" id="kpis"></div>
+<div class="card"><h3 id="tb">Front-month position ranking</h3>
+  <div class="grid2" style="margin:0;grid-template-columns:1fr 1fr;gap:14px">
+    <div><div class="note" style="margin:0 0 4px"><b>Long board</b></div><div id="gb1"></div></div>
+    <div><div class="note" style="margin:0 0 4px"><b>Short board</b></div><div id="gb2"></div></div>
+  </div>
+  <div class="note">Full SHFE top-20 boards for the front-month contract, latest session (all members, not just tracked ones).
+  Refreshed nightly.</div></div>
+<div class="card"><h3>Smelter-related broker set <span class="pill" style="margin-left:6px">your tags, saved locally</span></h3>
+  <div class="bset" id="bset"></div>
+  <div style="margin-top:8px"><button id="selproven">Select brokers with delivery track record (≥3 cycles)</button></div>
+  <div class="note"><b>How the default set was chosen:</b> corporate affiliation — 金瑞期货 is Jiangxi Copper's broker, 铜冠金源 is
+  Tongling Nonferrous', 中金岭南 is a zinc smelter affiliate, 五矿期货 is Minmetals group — plus 建信期货, included not by ownership
+  but because its book shows a persistent producer-style short position with a recurring delivery signature (likely smelter client
+  flow routed through a bank broker). This is convention/inference, not disclosure. For a purely data-driven set, use the button
+  above: it tags every tracked broker that carried material short OI (≥300 lots) into the delivery month in at least 3 of the 23
+  copper delivery cycles sampled (Sep 2024 – Jul 2026). The full track record table is below.</div>
+  <div id="gdr" style="margin-top:10px"></div>
+  <div class="note">Delivery track record (copper): cycles = delivery months where the member sat on the front-month short board
+  with ≥300 lots inside the delivery month; avg/max lots and avg share of the top-20 short board measured on those occasions.
+  Caveat: top-20 short OI held into delivery signals delivery <i>capacity/intent</i>, not confirmed delivered volume, and client
+  flow at big brokers (中信, 国泰君安) also shows up here.</div></div>
+<div class="grid2">
+  <div class="card"><h3 id="t1">1 — Front-month net OI vs Premium</h3><div id="w1" class="warn" style="display:none"></div>
+    <div class="chartbox"><canvas id="c1"></canvas></div>
+    <div class="note">Smelter-tagged brokers, net OI (long − short) on the front-month contract; premium on the right axis.<br>
+    <b>含义:</b> 冶炼席位近月净空越深、升水越高 = 套保随现货紧张加码；临近交割转为回补则净头寸回升。
+    <b>Implication:</b> deeper net short with rising premium = hedging scales with tightness; net rising near delivery = covering into the peak.</div></div>
+  <div class="card"><h3 id="t2">2 — Front-month net OI vs Backwardation</h3>
+    <div class="chartbox"><canvas id="c2"></canvas></div>
+    <div class="note">Same positions against the F1−F2 settlement backwardation (¥/t).<br>
+    <b>含义:</b> back 结构与升水同源但更即时；两图背离时（升水高而 back 走弱等）常预示月差交易机会。
+    <b>Implication:</b> backwardation is the faster twin of the premium; divergence between charts 1 and 2 often flags calendar-spread opportunities.</div></div>
+  <div class="card"><h3 id="t3">3 — Front-month long &amp; short OI vs Premium</h3><div id="w3" class="warn" style="display:none"></div>
+    <div class="chartbox"><canvas id="c3"></canvas></div>
+    <div class="note">Long (green) and short (red) OI on the front month for the scope chosen above; premium on the right axis.
+    A short book held up while premium rises = delivery-hedge signature.<br>
+    <b>含义:</b> 红线（空）在升水上行中不减 = 有货可交、打算交割；红线快速下坠 = 被迫回补/挤仓。
+    <b>Implication:</b> red line holding through rising premium = has metal, intends to deliver; red line collapsing = forced covering / squeeze.</div></div>
+  <div class="card"><h3 id="t4">4 — Front-month long &amp; short OI vs Backwardation</h3>
+    <div class="chartbox"><canvas id="c4"></canvas></div>
+    <div class="note">Same long/short positions against backwardation.<br>
+    <b>含义:</b> 交割月前 back 急扩 + 空单仍高 = 移仓成本被推升，空头「交货或挨挤」二选一。
+    <b>Implication:</b> widening backwardation with shorts still large before delivery = rolling gets expensive; shorts must deliver or get squeezed.</div></div>
+</div>
+<div class="card" id="alertcard" style="display:none"><h3>🚨 Delivery alert & price-surge monitor — CU
+  <label style="font-size:12px;font-weight:400;margin-left:14px">Surge scope <select id="surgescope"></select></label></h3>
+  <div class="kpis" id="alertkpis" style="padding:0 0 10px"></div>
+  <div class="grid2" style="margin:0;gap:14px">
+    <div><div class="chartbox"><canvas id="c8"></canvas></div>
+      <div class="note">Coverage = front-month top-20 OI (converted to tonnes, ×5) ÷ SHFE copper warrants. High coverage
+      near delivery = many positions chasing little deliverable metal (squeeze conditions). Orange = backwardation.<br>
+      <b>含义:</b> 覆盖率 = 持仓量÷可交割仓单。临近交割仍 ≥10 倍 = 「僧多粥少」，挤仓条件成立（红色警报）。
+      <b>Implication:</b> ≥10× into delivery = too many positions per tonne of registered metal — squeeze conditions (red alert).</div></div>
+    <div><div class="chartbox" style="height:200px;margin-bottom:8px"><canvas id="c13"></canvas></div>
+      <div id="gsurge"></div>
+      <div class="note">Price surges = daily move ≥2σ vs the trailing 15-day distribution (main contract settle).
+      Historical pattern: after UP-surges, delivery brokers cut front-month shorts ≈2,400 lots by T+3 and ≈5,200 by T+5 —
+      they unwind into strength; sharp spikes trigger covering even at high absolute prices.</div></div>
+  </div>
+  <div class="chartbox" style="margin-top:12px"><canvas id="c9"></canvas></div>
+  <div class="note">Price surges vs front-month positioning: copper price (orange, right axis) with surge days marked
+  (▲ up-surge, ▼ down-surge); the selected scope's front-month short (red) and long (green) OI on the left axis.<br>
+  <b>含义:</b> ▲ 之后红线下坠 = 「向强势平仓」——急涨逼出交割席位的空头回补，历史均值 T+3 约 −2,400 手、T+5 约 −5,200 手。
+  <b>Implication:</b> red line dropping after ▲ = unwind-into-strength — sharp rallies force delivery brokers to cover (historical avg ≈ −2,400 lots by T+3, −5,200 by T+5).</div>
+  <div class="chartbox" style="margin-top:12px;height:260px"><canvas id="c12"></canvas></div>
+  <div class="note">覆盖率路径 Coverage path: front-month OI÷warrants aligned by sessions to the delivery month (P = before,
+  I = into). Red = current cycle with ▲/▼ marking price-surge days; grey dashed = average of previous cycles.<br>
+  <b>含义:</b> 红线高于灰线 = 本周期比历史更"挤"；▲ 常出现在覆盖率峰值附近 —— 覆盖率飙升 → 价格急涨 → 空头平仓 → 覆盖率回落，是完整的挤仓链条。
+  <b>Implication:</b> red above grey = this cycle tighter than normal; ▲ markers cluster near coverage peaks — the full squeeze chain: coverage spikes → price surges → shorts unwind → coverage falls.</div>
+  <div class="grid2" style="margin:12px 0 0;gap:14px">
+    <div><div class="chartbox" style="height:220px"><canvas id="c11"></canvas></div>
+      <div class="note" id="pacenote"></div></div>
+    <div><div class="chartbox" style="height:220px"><canvas id="c10"></canvas></div></div>
+    <div><div class="note" style="font-size:12px;margin-top:20px"><b>How smelters accept high prices:</b> each bar = the average
+    next-day change in the delivery brokers' <i>total</i> copper short book, grouped by where price sits in its 60-day range.<br>
+    <b>含义:</b> 高价位组柱子为正 = 缓涨中冶炼商仍在卖出保值（接受并锁定高价）；急涨才逼出回补。若最高价位组连续转负 = 不再接受当前价格，预期更高或留货交割——重要预警。
+    <b>Implication:</b> positive bars at high price buckets = smelters keep selling forward on gradual strength (accepting/locking prices); only violent spikes force covering. Top bucket turning negative for days = they've stopped accepting — expect more upside or metal held for delivery.</div></div>
+  </div></div>
+<div class="card" id="cyclecard" style="display:none"><h3>当月合约周期表 Monthly delivery-cycle table — CU</h3>
+  <div class="grid2" style="margin:0;gap:14px">
+    <div><div class="chartbox" style="height:240px"><canvas id="c14"></canvas></div></div>
+    <div><div id="gcycles"></div></div>
+  </div>
+  <div id="gresid" style="margin-top:10px"></div>
+  <div class="note">每个「当月」窗口（合约成为最近月起至其最后交易日，约上月16日→当月15日）内，前20席位在该合约上的平均买单(L)/卖单(S)与升水均值。
+  Each cycle window = the period a contract is the nearest month (~16th of prior month → its last trading day on the 15th); columns show top-20 avg long/short on that contract and the avg premium.<br>
+  <b>含义:</b> 当月 S/L 比率高 + 升水低 = 空头压力周期；比率低 + 升水高 = 抢货周期。当前周期列与历史均值的偏离（%）是最直接的「本月是否异常」读数。
+  <b>Implication:</b> high S/L with low premium = short-pressure cycle; low S/L with high premium = scramble-for-metal cycle. The current cycle's % deviation from the historical average is the quickest "is this month abnormal" gauge.
+  <b>注 / Note:</b> 剩余持仓 = 上期所官方逐合约总持仓（kx 日报）− 前20席位合计，即小会员+非会员的真实当月持仓，无需假设。数据自 2026-07-16 起每日自动更新。
+  Residual = SHFE official per-contract total OI (daily kx report) − top-20 sum: the true small-member + non-member position, no assumptions; auto-updated daily since 2026-07-16.<br>
+  <b>含义:</b> 非前20持仓在临近交割时快速下降 = 散户/小机构照例离场；若持续偏高（红/绿实线明显高于上月虚线及灰/黄点线的近3周期均值）= 非常规资金滞留当月，交割月波动风险上升。下方差异简报表逐点列出本月 vs 近3周期均值。
+  <b>Implication:</b> residual OI normally drains into delivery (small players can't deliver); if it stays elevated vs last cycle (solid lines above dashed), unusual money is lingering in the prompt month — expiry volatility risk rises.</div></div>
+<div class="card"><h3 id="t7">Front-month top-20: total shorts − total longs</h3><div id="w7" class="warn" style="display:none"></div>
+  <div class="chartbox2"><canvas id="c7"></canvas></div>
+  <div class="note">Bars = top-20 short-board sum − top-20 long-board sum on the front-month contract (positive = the biggest
+  shorts out-size the biggest longs → short-side concentration into delivery). Thin lines = the underlying top-20 long and short
+  totals. Right axis: backwardation (orange) and premium (purple, when loaded).<br>
+  <b>含义:</b> 与直觉相反——空头堆积（红柱）多在曲线疲软时出现（r=−0.56）；back 走扩进交割时反转为多头占优。红柱高企 + back 开始走扩 = 空头压力即将释放。
+  <b>Implication:</b> counter-intuitively, the short overhang peaks when the curve is soft (r=−0.56) and flips long-heavy as backwardation spikes; tall red bars + backwardation starting to widen = short-side pressure about to release.</div>
+  <div id="g4" style="margin-top:10px"></div></div>
+<div class="card"><h3 id="t6">Total net OI vs Premium &amp; Backwardation</h3><div id="w6" class="warn" style="display:none"></div>
+  <div class="chartbox2"><canvas id="c6"></canvas></div>
+  <div class="note">Blue = market-wide top-20 net OI (sum of all long boards − all short boards, every contract): positive means
+  the biggest longs out-size the biggest shorts. Teal = net OI summed over your tracked brokers only. Right axis: backwardation
+  (orange dashed) and your premium series (purple dashed, when loaded).<br>
+  <b>含义:</b> 蓝线深负 + 升水走高 = 产业空头压舱、现货紧张并存；蓝线快速上穿零轴 = 空头集中撤退，往往伴随价格/升水冲高。
+  <b>Implication:</b> deeply negative blue with rising premium = heavy industry hedge base amid tightness; blue snapping up through zero = concentrated short retreat, typically alongside price/premium spikes.</div></div>
+<div class="card"><h3 id="t5">All tracked brokers — cumulative net-OI change vs backwardation change</h3>
+  <div class="chartbox2"><canvas id="c5"></canvas></div>
+  <div class="note">Each line = cumulative change in broker net OI (all contracts, lots) since first shown date; orange dashed =
+  cumulative backwardation change (¥/t, right axis). Click legend entries to hide/show.<br>
+  <b>含义:</b> 谁在窗口内累计加空/加多一目了然；与橙线同向下行的席位 = 随紧张度加保值的产业盘，逆行者 = 投机/客户流。
+  <b>Implication:</b> shows who accumulated shorts/longs over the window; lines tracking the orange down = industry hedgers scaling with tightness, lines moving against it = spec/client flow.</div></div>
+<div class="card"><h3>Broker statistics (computed for the selected period)</h3><div id="g1"></div>
+  <div class="note">corr(level)/corr(Δ): broker all-contract net OI vs backwardation (levels / daily changes); front-corr: front-month
+  net OI vs backwardation; prem-corr: front-month net OI vs your premium series (— until uploaded); best lag: shift of broker series
+  maximising |r| in −10..+10 trading days (positive = broker leads). SM = tagged smelter-related.</div></div>
+<div class="card"><h3>Full daily data — all contracts net OI</h3><div id="g2"></div>
+  <div class="note">Net OI per broker across all contracts (blank-as-zero when off a top-20 board). Sortable; latest first.</div></div>
+<div class="card"><h3>Full daily data — front-month positions</h3><div id="g3"></div>
+  <div class="note">Front-month net OI per broker, plus long/short detail for the L/S scope selection. Latest first.</div></div>
+<script>
+/*__BASELINE__*/
+const DELIV_DEFAULT = {CU:['金瑞期货','铜冠金源','建信期货','五矿期货'], AL:['金瑞期货','铜冠金源','建信期货','五矿期货'], ZN:['金瑞期货','铜冠金源','建信期货','五矿期货','中金岭南']};
+const PALETTE = ['#1f77b4','#d62728','#2ca02c','#9467bd','#8c564b','#e377c2','#17a2b8','#bcbd22','#ff7f0e','#7f7f7f','#3949ab','#00897b','#c62828','#6d4c41'];
+const SETSUM = '__SET__';
+const $ = id => document.getElementById(id);
+const state = { metal:'CU', period: localStorage.getItem('shfe_period')||'3m', ls: SETSUM };
+let charts = {}, grids = {};
+let userPremium = JSON.parse(localStorage.getItem('shfe_prem_ovr')||'null');
+let sharedPremium = (typeof BASELINE!=='undefined' && BASELINE.premium) ? BASELINE.premium : null;
+function parsePremCsv(txt){
+  const m={};
+  txt.replace(/^﻿/,'').split(/\r?\n/).forEach(line=>{
+    const p=line.trim().split(/[\s,;]+/).map(s=>s.replace(/^["']|["']$/g,'')).filter(s=>s!=='');
+    if(p.length<2) return;
+    let y=null,mo=null,da=null;
+    let dm=p[0].match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);           // 2021-01-04 / 2021/1/4
+    if(dm){ y=dm[1]; mo=dm[2]; da=dm[3]; }
+    else{
+      dm=p[0].match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);            // 1/4/2021 (Excel M/D/YYYY)
+      if(dm){ y=dm[3]; mo=dm[1]; da=dm[2]; }
+    }
+    const v=parseFloat(p[1].replace(/,/g,''));
+    if(y && !isNaN(v) && +mo>=1 && +mo<=12 && +da>=1 && +da<=31)
+      m[y+'-'+String(mo).padStart(2,'0')+'-'+String(da).padStart(2,'0')]=v;
+  });
+  return Object.keys(m).length>2 ? m : null;
+}
+// shared premium published alongside the site (data/premium.csv in the repo) — visible to every viewer
+try {
+  fetch('data/premium.csv').then(r=>r.ok?r.text():null).then(t=>{
+    if(t){ sharedPremium = parsePremCsv(t); if(sharedPremium && !userPremium) render(); }
+  }).catch(()=>{});
+} catch(e){}
+const lsGet = (k,d) => { try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } };
+
+function smelterSet(metal){
+  const saved = lsGet('shfe_smelter_set', {});
+  return saved[metal] || DELIV_DEFAULT[metal] || [];
+}
+function setSmelter(metal, arr){
+  const saved = lsGet('shfe_smelter_set', {});
+  saved[metal] = arr; localStorage.setItem('shfe_smelter_set', JSON.stringify(saved));
+}
+function seriesFor(metal){
+  const st = BASELINE.metals[metal];
+  const brokers = {};
+  for(const b in st.brokers){
+    const B = st.brokers[b];
+    const net = {}, fnet = {};
+    for(const d of new Set([...Object.keys(B.long||{}),...Object.keys(B.short||{})])) net[d] = ((B.long||{})[d]||0)-((B.short||{})[d]||0);
+    for(const d of new Set([...Object.keys(B.nlong||{}),...Object.keys(B.nshort||{})])) fnet[d] = ((B.nlong||{})[d]||0)-((B.nshort||{})[d]||0);
+    if(Object.keys(net).length) brokers[b] = {net, fnet, flong:B.nlong||{}, fshort:B.nshort||{}};
+  }
+  const totNet = {};
+  for(const d in (st.tot||{})) totNet[d] = st.tot[d][0] - st.tot[d][1];
+  return {bwd: st.spread, brokers, totNet, ftot: st.ftot||{}};
+}
+function pearson(xs,ys){ const n=xs.length; if(n<10) return null;
+  const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n; let sxy=0,sx=0,sy=0;
+  for(let i=0;i<n;i++){const a=xs[i]-mx,b=ys[i]-my; sxy+=a*b; sx+=a*a; sy+=b*b;}
+  return (sx&&sy)? sxy/Math.sqrt(sx*sy) : null; }
+function stats(net, ref){
+  const dates = Object.keys(net).filter(d=>ref && d in ref).sort();
+  const x = dates.map(d=>net[d]), y = dates.map(d=>ref[d]);
+  const lvl = pearson(x,y);
+  const dx = x.slice(1).map((v,i)=>v-x[i]), dy = y.slice(1).map((v,i)=>v-y[i]);
+  const chg = pearson(dx,dy);
+  let best=null;
+  for(let lag=-10;lag<=10;lag++){ const xs=[],ys=[];
+    for(let i=0;i<dates.length;i++){const j=i-lag; if(j>=0&&j<dates.length){xs.push(x[j]);ys.push(y[i]);}}
+    const r=pearson(xs,ys); if(r!==null && (!best||Math.abs(r)>Math.abs(best.r))) best={lag,r}; }
+  return {lvl,chg,best,n:dates.length};
+}
+function sumSeries(list){
+  const out={};
+  list.forEach(o=>{ for(const d in o) out[d]=(out[d]||0)+o[d]; });
+  return out;
+}
+function renderMgr(brokers){
+  const sm = smelterSet(state.metal);
+  $('bset').innerHTML = Object.keys(brokers).map(b=>
+    `<label class="${sm.includes(b)?'sm':''}"><input type="checkbox" data-b="${b}" ${sm.includes(b)?'checked':''}>${b}</label>`).join('');
+  $('bset').querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.onchange = ()=>{
+      const b = cb.dataset.b; let arr = smelterSet(state.metal).slice();
+      if(cb.checked && !arr.includes(b)) arr.push(b);
+      if(!cb.checked) arr = arr.filter(x=>x!==b);
+      setSmelter(state.metal, arr); render();
+    };
+  });
+}
+function mkChart(id,cfg){ if(charts[id]) charts[id].destroy(); charts[id]=new Chart($(id),cfg); }
+const ALIAS = {'五矿经易':'五矿期货','国投期货':'国投安信','申万期货':'申银万国'};
+function renderBoard(metal){
+  const st = BASELINE.metals[metal];
+  const b = st.board;
+  if(!b){ $('tb').textContent = 'Front-month position ranking — no board data yet'; return; }
+  $('tb').textContent = `Front-month position ranking — ${b.contract} (${b.date})`;
+  const smNames = new Set(smelterSet(metal));
+  const tag = n => smNames.has(ALIAS[n]||n) ? n+' ◆' : n;
+  const longs = b.rows.filter(r=>r[1]!=null).sort((a,c)=>a[1]-c[1]).map(r=>[r[1], tag(r[0]), r[2]]);
+  const shorts = b.rows.filter(r=>r[3]!=null).sort((a,c)=>a[3]-c[3]).map(r=>[r[3], tag(r[0]), r[4]]);
+  const style = {td:{padding:'3px 8px',fontSize:'12px'},th:{padding:'5px 8px',fontSize:'11.5px'}};
+  $('gb1').innerHTML=''; new gridjs.Grid({columns:['#','Broker','Long OI'], data:longs, style}).render($('gb1'));
+  $('gb2').innerHTML=''; new gridjs.Grid({columns:['#','Broker','Short OI'], data:shorts, style}).render($('gb2'));
+}
+function renderRecord(){
+  const rec = BASELINE.delivery_record||[];
+  $('gdr').innerHTML='';
+  new gridjs.Grid({columns:['Broker','Cycles (of 23)','Avg lots into delivery','Max lots','Avg share of top-20 shorts','Last cycle'],
+    data: rec.map(r=>[r.name, r.cycles, r.avg_lots, r.max_lots, (r.avg_share*100).toFixed(1)+'%', r.last]),
+    sort:true, pagination:{limit:10}, search:true,
+    style:{td:{padding:'4px 8px',fontSize:'12px'},th:{padding:'6px 8px',fontSize:'11.5px'}}}).render($('gdr'));
+}
+function baseOpts(rightTitle){
+  return {responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},
+    scales:{y:{title:{display:true,text:'lots'}},
+            y2:{position:'right',grid:{drawOnChartArea:false},title:{display:true,text:rightTitle}},
+            x:{ticks:{maxTicksLimit:10,font:{size:10}}}}};
+}
+function render(){
+  const metal = state.metal;
+  const {bwd, brokers, totNet, ftot} = seriesFor(metal);
+  const allB = Object.keys(brokers);
+  const sm = smelterSet(metal).filter(b=>allB.includes(b));
+  // axis with period filter
+  const all = new Set(Object.keys(bwd)); allB.forEach(b=>Object.keys(brokers[b].net).forEach(d=>all.add(d)));
+  let axis = [...all].sort();
+  if(state.period !== 'all' && axis.length){
+    const months = {'6m':6,'3m':3,'1m':1}[state.period];
+    const cut = new Date(axis[axis.length-1]);
+    if(months) cut.setMonth(cut.getMonth()-months); else cut.setDate(cut.getDate()-14);
+    const cutS = cut.toISOString().slice(0,10);
+    axis = axis.filter(d=>d>=cutS);
+  }
+  const inWin = obj => { const o={}; for(const d of axis) if(obj && obj[d]!=null) o[d]=obj[d]; return o; };
+  const S = obj => axis.map(d=>(obj&&obj[d])??null);
+  const prem = userPremium || sharedPremium;
+  const premDs = prem ? {label:'premium',data:S(prem),borderColor:'#ff9800',borderDash:[6,4],pointRadius:0,borderWidth:2.5,spanGaps:true,yAxisID:'y2'} : null;
+  const bwdDs = {label:'backwardation F1−F2',data:S(bwd),borderColor:'#ff9800',borderDash:[6,4],pointRadius:0,borderWidth:2.5,spanGaps:true,yAxisID:'y2'};
+  renderMgr(brokers);
+  renderBoard(metal);
+  try{ renderAlert(); }catch(e){ console.log('alert render skipped', e && e.message); }
+  try{ renderCycles(); }catch(e){ console.log('cycles render skipped', e && e.message); }
+  // L/S scope select
+  const opts = [[SETSUM,'Smelter set (sum)']].concat(allB.map(b=>[b,b]));
+  $('lsscope').innerHTML = opts.map(([v,t])=>`<option value="${v}" ${v===state.ls?'selected':''}>${t}</option>`).join('');
+  if(state.ls!==SETSUM && !allB.includes(state.ls)) state.ls = SETSUM;
+  const lsName = state.ls===SETSUM ? 'smelter set (sum)' : state.ls;
+  const flong = state.ls===SETSUM ? sumSeries(sm.map(b=>inWin(brokers[b].flong))) : inWin(brokers[state.ls].flong);
+  const fshort = state.ls===SETSUM ? sumSeries(sm.map(b=>inWin(brokers[b].fshort))) : inWin(brokers[state.ls].fshort);
+  const fnetSel = state.ls===SETSUM ? sumSeries(sm.map(b=>inWin(brokers[b].fnet))) : inWin(brokers[state.ls].fnet);
+  const smLines = sm.map((b,i)=>({label:b,data:S(brokers[b].fnet),borderColor:PALETTE[i],pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'}));
+  // 1 & 2: front net vs premium / backwardation
+  const noPrem = !prem;
+  $('w1').style.display = noPrem?'':'none';
+  $('w1').textContent = 'No premium series loaded — upload your SMM premium CSV (date,premium) in the toolbar to populate the orange line.';
+  mkChart('c1',{type:'line',data:{labels:axis,datasets: premDs? [...smLines, premDs] : smLines}, options: baseOpts('premium ¥/t')});
+  mkChart('c2',{type:'line',data:{labels:axis,datasets:[...smLines.map(d=>({...d})), bwdDs]}, options: baseOpts('¥/t')});
+  // 3 & 4: long/short vs premium / backwardation
+  const lsSets = [
+    {label:lsName+' long (front)',data:S(flong),borderColor:'#2ca02c',pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+    {label:lsName+' short (front)',data:S(fshort),borderColor:'#d62728',pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+    {label:lsName+' net (front)',data:S(fnetSel),borderColor:'#1f77b4',borderDash:[3,3],pointRadius:0,borderWidth:1.5,spanGaps:true,yAxisID:'y'}];
+  $('w3').style.display = noPrem?'':'none';
+  $('w3').textContent = $('w1').textContent;
+  mkChart('c3',{type:'line',data:{labels:axis,datasets: premDs? [...lsSets, {...premDs}] : lsSets}, options: baseOpts('premium ¥/t')});
+  mkChart('c4',{type:'line',data:{labels:axis,datasets:[...lsSets.map(d=>({...d})), {...bwdDs}]}, options: baseOpts('¥/t')});
+  // 7: front-month top-20 shorts - longs
+  const fLong={}, fShort={}, fDiff={};
+  for(const d in ftot){ fLong[d]=ftot[d][0]; fShort[d]=ftot[d][1]; fDiff[d]=ftot[d][1]-ftot[d][0]; }
+  $('w7').style.display = noPrem?'':'none';
+  $('w7').textContent = $('w1').textContent;
+  const c7sets = [
+    {type:'bar',label:'top-20 shorts − longs (front)',data:S(fDiff),backgroundColor:axis.map(d=>(fDiff[d]??0)>=0?'rgba(214,39,40,0.55)':'rgba(44,160,44,0.55)'),yAxisID:'y'},
+    {type:'line',label:'top-20 long total (front)',data:S(fLong),borderColor:'#2ca02c',pointRadius:0,borderWidth:1.4,spanGaps:true,yAxisID:'y'},
+    {type:'line',label:'top-20 short total (front)',data:S(fShort),borderColor:'#d62728',pointRadius:0,borderWidth:1.4,spanGaps:true,yAxisID:'y'},
+    {type:'line',...bwdDs}];
+  if(premDs) c7sets.push({type:'line',...premDs, borderColor:'#9467bd', label:'premium'});
+  mkChart('c7',{data:{labels:axis,datasets:c7sets}, options: baseOpts('¥/t')});
+  // g4: front-month totals table
+  const frows = [...axis].reverse().filter(d=>ftot[d]).map(d=>[d, ftot[d][2], ftot[d][0], ftot[d][1], ftot[d][1]-ftot[d][0],
+    bwd[d]??'', prem?(prem[d]??''):'']);
+  $('g4').innerHTML='';
+  grids.g4 = new gridjs.Grid({columns:['Date','Front contract','Top-20 longs','Top-20 shorts','Shorts − longs','Backwd ¥/t','Premium'],
+    data:frows, sort:true, pagination:{limit:10},
+    style:{td:{padding:'4px 8px',fontSize:'12px'},th:{padding:'6px 8px',fontSize:'11.5px'}}}).render($('g4'));
+  // 6: total net OI vs premium & backwardation
+  const trackedSum = sumSeries(allB.map(b=>inWin(brokers[b].net)));
+  $('w6').style.display = noPrem?'':'none';
+  $('w6').textContent = $('w1').textContent;
+  const c6sets = [
+    {label:'top-20 total net OI',data:S(totNet),borderColor:'#1f77b4',pointRadius:0,borderWidth:2.2,spanGaps:true,yAxisID:'y'},
+    {label:'tracked brokers net (sum)',data:S(trackedSum),borderColor:'#17a2b8',borderDash:[3,3],pointRadius:0,borderWidth:1.8,spanGaps:true,yAxisID:'y'},
+    {...bwdDs}];
+  if(premDs) c6sets.push({...premDs, borderColor:'#9467bd', label:'premium'});
+  mkChart('c6',{type:'line',data:{labels:axis,datasets:c6sets}, options: baseOpts('¥/t')});
+  // 5: all brokers cumulative
+  const toCum = obj => { let base=null; return axis.map(d=>{const v=obj[d]; if(v==null) return null; if(base===null) base=v; return v-base;}); };
+  mkChart('c5',{type:'line',data:{labels:axis,datasets:[
+    ...allB.map((b,i)=>({label:b,data:toCum(brokers[b].net),borderColor:PALETTE[i%PALETTE.length],pointRadius:0,borderWidth:1.8,spanGaps:true,yAxisID:'y'})),
+    {label:'Δ backwardation',data:toCum(bwd),borderColor:'#ff9800',borderDash:[6,4],pointRadius:0,borderWidth:3,spanGaps:true,yAxisID:'y2'}
+  ]},options: baseOpts('Δ ¥/t')});
+  // stats grid
+  const bwdW = inWin(bwd), premW = prem? inWin(prem) : null;
+  const rows = allB.map(b=>{
+    const s = stats(inWin(brokers[b].net), bwdW);
+    const sf = stats(inWin(brokers[b].fnet), bwdW);
+    const sp = premW? stats(inWin(brokers[b].fnet), premW) : null;
+    const nd = Object.keys(brokers[b].net).sort();
+    const last = nd[nd.length-1], v = brokers[b].net[last];
+    const d1 = nd.length>1 ? v-brokers[b].net[nd[nd.length-2]] : null;
+    const fd = Object.keys(brokers[b].fnet).sort(); const flast = fd[fd.length-1];
+    return [sm.includes(b)?'✔':'', b, last, v, d1, flast?brokers[b].fnet[flast]:null,
+            s.lvl!=null?+s.lvl.toFixed(3):null, s.chg!=null?+s.chg.toFixed(3):null,
+            sf.lvl!=null?+sf.lvl.toFixed(3):null,
+            sp&&sp.lvl!=null?+sp.lvl.toFixed(3):'—',
+            s.best?`${s.best.lag>0?'+':''}${s.best.lag}d (${s.best.r.toFixed(2)})`:'—', s.n];
+  }).sort((a,b)=>a[3]-b[3]);
+  $('g1').innerHTML='';
+  grids.g1 = new gridjs.Grid({columns:['SM','Broker','As of','Net OI','Δ1d','Front net','corr(level)','corr(Δ)','front-corr','prem-corr','best lag','n'],
+    data:rows, sort:true, style:{td:{padding:'5px 9px',fontSize:'12.5px'},th:{padding:'6px 9px',fontSize:'11.5px'}}}).render($('g1'));
+  // g2: all-contract daily
+  const drows = [...axis].reverse().map(d=>[d, bwd[d]??'', prem?(prem[d]??''):'', ...allB.map(b=>brokers[b].net[d]??'')]);
+  $('g2').innerHTML='';
+  grids.g2 = new gridjs.Grid({columns:['Date','Backwd ¥/t','Premium',...allB], data:drows, sort:true,
+    pagination:{limit:15}, search:true,
+    style:{td:{padding:'4px 8px',fontSize:'12px'},th:{padding:'6px 8px',fontSize:'11.5px'}}}).render($('g2'));
+  // g3: front-month daily
+  const nrows = [...axis].reverse().map(d=>[d, bwd[d]??'', prem?(prem[d]??''):'', flong[d]??'', fshort[d]??'',
+    ...allB.map(b=>brokers[b].fnet[d]??'')]);
+  $('g3').innerHTML='';
+  grids.g3 = new gridjs.Grid({columns:['Date','Backwd ¥/t','Premium',lsName+' long',lsName+' short',...allB.map(b=>b+' front net')],
+    data:nrows, sort:true, pagination:{limit:15}, search:true,
+    style:{td:{padding:'4px 8px',fontSize:'12px'},th:{padding:'6px 8px',fontSize:'11.5px'}}}).render($('g3'));
+  // KPIs
+  const bd = Object.keys(bwd).sort(); const lastB = bd[bd.length-1];
+  const jr = brokers['金瑞期货']; let jrTxt='—', jrD='';
+  if(jr && Object.keys(jr.net).length){ const nd=Object.keys(jr.net).sort(); jrTxt=jr.net[nd[nd.length-1]].toLocaleString(); jrD=nd[nd.length-1]; }
+  const fsum = sm.reduce((acc,b)=>{ const k=Object.keys(brokers[b].fnet).sort().pop(); return acc+(k?brokers[b].fnet[k]:0);},0);
+  const pd2 = prem? Object.keys(prem).sort() : [];
+  $('kpis').innerHTML = [
+    ['Backwardation ('+(lastB||'—')+')', bwd[lastB]!=null?bwd[lastB].toLocaleString()+' ¥/t':'—'],
+    ['Premium '+(prem?('('+pd2[pd2.length-1]+')'):''), prem? prem[pd2[pd2.length-1]].toLocaleString()+' ¥/t':'not loaded'],
+    ['Jinrui net OI ('+jrD+')', jrTxt+' lots'],
+    ['Smelter-set front-month net', fsum.toLocaleString()+' lots'],
+    ['Days shown', axis.length]
+  ].map(([l,v])=>`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+  ['t1','t2','t3','t4'].forEach((t,i)=>{
+    const names = ['Front-month net OI vs Premium','Front-month net OI vs Backwardation',
+                   'Front-month long & short OI vs Premium','Front-month long & short OI vs Backwardation'];
+    $(t).textContent = (i+1)+' — '+names[i]+' — '+metal;
+  });
+  $('ovr').textContent = userPremium ? 'premium: your upload ('+Object.keys(userPremium).length+' rows)'
+    : (sharedPremium ? 'premium: shared series ('+Object.keys(sharedPremium).length+' rows)' : 'premium: not loaded');
+  $('clearovr').style.display = userPremium ? '' : 'none';
+}
+function renderAlert(){
+  const A = BASELINE.alert;
+  if(!A || !A.coverage || state.metal!=='CU'){ $('alertcard').style.display='none'; return; }
+  $('alertcard').style.display='';
+  const covD = Object.keys(A.coverage).sort();
+  const last = covD[covD.length-1];
+  const cov = A.coverage[last];
+  const warD = Object.keys(A.warrants||{}).sort();
+  const warLast = warD.length? A.warrants[warD[warD.length-1]] : null;
+  // days to delivery month of current front contract
+  const st = BASELINE.metals.CU;
+  const fd = Object.keys(st.ftot||{}).sort().pop();
+  const frontC = fd? st.ftot[fd][2] : null;
+  let dtd = null;
+  if(frontC){
+    const y = 2000 + +frontC.slice(2,4), m = +frontC.slice(4,6);
+    dtd = Math.max(0, Math.round((new Date(y, m-1, 1) - new Date(last)) / 86400000));
+  }
+  const status = cov >= 10 ? ['RED — squeeze conditions','#c62828'] : cov >= 5 ? ['AMBER — elevated','#9a6b00'] : ['GREEN — comfortable','#1b7f3b'];
+  $('alertkpis').innerHTML = [
+    ['Coverage ratio (OI÷warrants)', cov.toFixed(1)+'×', status[1]],
+    ['Front OI vs warrants', frontC? (st.ftot[fd][0]+st.ftot[fd][1]? '':'')+'':'', null],
+    ['Warrants ('+(warD[warD.length-1]||'—')+')', warLast? warLast.toLocaleString()+' t':'—', null],
+    ['Days to delivery month', dtd!=null? dtd+'d ('+frontC+')':'—', null],
+    ['Status', status[0], status[1]]
+  ].filter(x=>x[1]!=='').map(([l,v,c])=>`<div class="kpi"><div class="v" style="${c?'color:'+c:''}">${v}</div><div class="l">${l}</div></div>`).join('');
+  const bwdMap = {};
+  const settle = st.settle;
+  for(const d of covD){
+    const tym = d.slice(2,4)+d.slice(5,7);
+    const cs = Object.keys(settle[d]||{}).filter(c=>c.slice(2)>=tym).sort((a,b)=>a.slice(2)<b.slice(2)?-1:1);
+    if(cs.length>=2) bwdMap[d] = settle[d][cs[0]] - settle[d][cs[1]];
+  }
+  const covVals = covD.map(d=>A.coverage[d]);
+  const covAvg = covVals.reduce((a,b)=>a+b,0)/covVals.length;
+  mkChart('c8',{type:'line',data:{labels:covD,datasets:[
+    {label:'coverage ×',data:covVals,borderColor:'#c62828',pointRadius:0,borderWidth:2,yAxisID:'y'},
+    {label:'avg of available history ('+covVals.length+'d): '+covAvg.toFixed(1)+'×',data:covD.map(()=>covAvg),borderColor:'#7f7f7f',borderDash:[3,3],pointRadius:0,borderWidth:1.5,yAxisID:'y'},
+    {label:'backwardation ¥/t',data:covD.map(d=>bwdMap[d]??null),borderColor:'#ff9800',borderDash:[6,4],pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y2'}
+  ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{y:{title:{display:true,text:'OI ÷ warrants'}},y2:{position:'right',grid:{drawOnChartArea:false}},x:{ticks:{maxTicksLimit:8,font:{size:10}}}}}});
+  // surge scope selector + per-scope front short/long series
+  const cuB = BASELINE.metals.CU.brokers;
+  const surgeable = Object.keys(cuB).filter(b=>Object.keys(cuB[b].nshort||{}).length>10);
+  if(!window.surgeScope) window.surgeScope = '__SET__';
+  $('surgescope').innerHTML = [['__SET__','Smelter set (sum)']].concat(surgeable.map(b=>[b,b]))
+    .map(([v,t])=>`<option value="${v}" ${v===window.surgeScope?'selected':''}>${t}</option>`).join('');
+  $('surgescope').onchange = e=>{ window.surgeScope=e.target.value; renderAlert(); };
+  const scopeSet = window.surgeScope==='__SET__' ? smelterSet('CU').filter(b=>surgeable.includes(b)) : [window.surgeScope];
+  const scopeName = window.surgeScope==='__SET__' ? 'smelter set' : window.surgeScope;
+  const sumMap = f => { const o={}; scopeSet.forEach(b=>{ const m=cuB[b][f]||{}; for(const d in m) o[d]=(o[d]||0)+m[d]; }); return o; };
+  const scShort = sumMap('nshort'), scLong = sumMap('nlong');
+  // c9: price + surge markers + scope front long/short
+  let seqD = [];
+  if(A.px){
+    const pd_ = Object.keys(A.px).sort();
+    seqD = pd_;
+    const surgeSet = {}; (A.surges||[]).forEach(s=>surgeSet[s.date]=s.z);
+    mkChart('c9',{data:{labels:pd_,datasets:[
+      {type:'line',label:scopeName+' front SHORT',data:pd_.map(d=>scShort[d]??null),borderColor:'#d62728',pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+      {type:'line',label:scopeName+' front LONG',data:pd_.map(d=>scLong[d]??null),borderColor:'#2ca02c',pointRadius:0,borderWidth:2,spanGaps:true,yAxisID:'y'},
+      {type:'line',label:'copper price (main settle)',data:pd_.map(d=>A.px[d]),borderColor:'#ff9800',pointRadius:0,borderWidth:2,yAxisID:'y2'},
+      {type:'scatter',label:'▲ up-surge',data:pd_.map(d=>surgeSet[d]>0? A.px[d]:null),pointStyle:'triangle',pointRadius:7,backgroundColor:'#c62828',yAxisID:'y2'},
+      {type:'scatter',label:'▼ down-surge',data:pd_.map(d=>surgeSet[d]<0? A.px[d]:null),pointStyle:'triangle',rotation:180,pointRadius:7,backgroundColor:'#1565c0',yAxisID:'y2'}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{y:{title:{display:true,text:'lots'}},y2:{position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'¥/t'}},x:{ticks:{maxTicksLimit:12,font:{size:10}}}},
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}}}});
+  }
+  // per-scope surge responses (computed live)
+  const fwd = (m,d,k)=>{
+    const i0 = seqD.indexOf(d); if(i0<0) return null;
+    let a=m[d]; if(a==null) return null;
+    let cnt=0;
+    for(let i=i0+1;i<seqD.length;i++){
+      if(m[seqD[i]]!=null){ cnt++; if(cnt===k) return m[seqD[i]]-a; }
+    }
+    return null;
+  };
+  const evRows = (A.surges||[]).slice(-12).reverse().map(s=>{
+    const d1=fwd(scShort,s.date,1), d3=fwd(scShort,s.date,3), d5=fwd(scShort,s.date,5);
+    return {s, d1, d3, d5};
+  });
+  // c12: coverage path — current cycle vs previous cycles' average, surge-marked
+  if(A.covpath && A.covpath.hist && A.covpath.hist.length){
+    const C=A.covpath;
+    const curPadded = C.tags.map((t,i)=>{
+      const off = C.tags.length - C.cur.length;
+      return i>=off ? C.cur[i-off] : null;
+    });
+    mkChart('c12',{data:{labels:C.tags,datasets:[
+      {type:'line',label:'近3月周期均值 recent-cycles avg (n='+C.ncycles+')',data:C.hist,borderColor:'#7f7f7f',borderDash:[6,4],pointRadius:2,borderWidth:2},
+      {type:'line',label:'current cycle '+C.cur_contract,data:curPadded,borderColor:'#c62828',pointRadius:3,borderWidth:2.5},
+      {type:'scatter',label:'▲ up-surge',data:C.tags.map((t,i)=>(C.cur_flags&&C.cur_flags[i]>0)? curPadded[i]:null),pointStyle:'triangle',pointRadius:8,backgroundColor:'#c62828'},
+      {type:'scatter',label:'▼ down-surge',data:C.tags.map((t,i)=>(C.cur_flags&&C.cur_flags[i]<0)? curPadded[i]:null),pointStyle:'triangle',rotation:180,pointRadius:8,backgroundColor:'#1565c0'}
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{title:{display:true,text:'OI ÷ warrants 覆盖率：当前周期 vs 历史均值（含 surge 标注）',font:{size:12}},legend:{labels:{boxWidth:12,font:{size:11}}}},
+      scales:{y:{title:{display:true,text:'coverage ×'}},x:{title:{display:true,text:'sessions to delivery month'}}}}});
+  }
+  // c11: unwind pace — current cycle vs historical average path
+  if(A.pace && A.pace.hist && A.pace.hist.length){
+    const P=A.pace;
+    mkChart('c11',{type:'line',data:{labels:P.tags,datasets:[
+      {label:'historical avg ('+P.ncycles+' cycles)',data:P.hist,borderColor:'#7f7f7f',borderDash:[6,4],pointRadius:3,borderWidth:2},
+      {label:'current cycle (last 6 sessions)',data:P.cur,borderColor:'#c62828',pointRadius:3,borderWidth:2.5}
+    ]},options:{responsive:true,maintainAspectRatio:false,
+      plugins:{title:{display:true,text:'平仓速度 Unwind pace: smelter front-month short (normalized, base=1)',font:{size:12}},legend:{labels:{boxWidth:12,font:{size:11}}}},
+      scales:{y:{title:{display:true,text:'× of starting level'}},x:{title:{display:true,text:'P = sessions before delivery month, I = into it'}}}}});
+    $('pacenote').textContent = '本周期减仓速度 '+(P.cur_pace!=null? P.cur_pace+'%/session':'—')
+      +'，历史平均（交割月前）'+(P.hist_pace!=null? P.hist_pace+'%/session':'—')
+      +'。红线低于灰线 = 平仓快于历史（恐慌/挤仓迹象）；高于灰线 = 平仓偏慢（有货在手、打算交割）。Red below grey = faster-than-normal unwind (squeeze sign); above grey = slower (holding to deliver). Window: '+(P.cur_dates? P.cur_dates[0]+' → '+P.cur_dates[P.cur_dates.length-1]:'');
+  }
+  // c10: price acceptance — this month vs prior 3 months
+  if(A.accept){
+    mkChart('c10',{type:'bar',data:{labels:A.accept.map(a=>a.b),datasets:[
+      {label:'本月 this month',data:A.accept.map(a=>a.recent),backgroundColor:'rgba(21,101,192,0.75)'},
+      {label:'前3月均值 prior 3m avg',data:A.accept.map(a=>a.prior),backgroundColor:'rgba(160,160,160,0.6)'}
+    ]},options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}},title:{display:true,text:'价格接受度 Smelter hedging vs price level — 本月 vs 前3月',font:{size:12}}},
+      scales:{x:{title:{display:true,text:'price percentile bucket (60d)'}},y:{title:{display:true,text:'Δ short lots/day'}}}}});
+  }
+  // c13: unwind-per-event bar chart (selected scope)
+  mkChart('c13',{type:'bar',data:{labels:evRows.map(r=>r.s.date+(r.s.z>0?' ▲':' ▼')),datasets:[
+    {label:'ΔShort T+1',data:evRows.map(r=>r.d1),backgroundColor:'rgba(21,101,192,0.7)'},
+    {label:'T+3',data:evRows.map(r=>r.d3),backgroundColor:'rgba(214,39,40,0.7)'},
+    {label:'T+5',data:evRows.map(r=>r.d5),backgroundColor:'rgba(255,152,0,0.75)'}
+  ]},options:{responsive:true,maintainAspectRatio:false,
+    plugins:{title:{display:true,text:scopeName+': front-short change after each surge (lots)',font:{size:12}},legend:{labels:{boxWidth:12,font:{size:11}}}},
+    scales:{x:{ticks:{font:{size:9.5}}},y:{title:{display:true,text:'Δ lots'}}}}});
+  $('gsurge').innerHTML='';
+  {
+    // live watch banner for the selected scope: change since most recent surge
+    const last = (A.surges||[]).slice(-1)[0];
+    if(last){
+      const i0 = seqD.indexOf(last.date);
+      const after = seqD.slice(i0+1).filter(d=>scShort[d]!=null);
+      if(i0>=0 && after.length>0 && after.length<=5 && scShort[last.date]!=null){
+        const chg = scShort[after[after.length-1]] - scShort[last.date];
+        $('gsurge').innerHTML = `<div class="warn" style="display:block;margin-bottom:6px">⚡ Active surge watch: ${last.date} (z=${last.z}) — ${scopeName} front-short change since: <b>${chg.toLocaleString()} lots</b> after ${after.length} session(s).</div>`;
+      }
+    }
+  }
+  const gdiv=document.createElement('div'); $('gsurge').appendChild(gdiv);
+  new gridjs.Grid({columns:['Date','z','Move %','Price','ΔShort T+1','T+3','T+5'],
+    data:evRows.map(r=>[r.s.date, r.s.z, r.s.ret+'%', r.s.px.toLocaleString(),
+      r.d1!=null? r.d1.toLocaleString():'…', r.d3!=null? r.d3.toLocaleString():'…', r.d5!=null? r.d5.toLocaleString():'…']),
+    style:{td:{padding:'4px 6px',fontSize:'11.5px'},th:{padding:'5px 6px',fontSize:'11px'}}}).render(gdiv);
+}
+function renderCycles(){
+  const A = BASELINE.alert;
+  if(!A || !A.cycles_tbl || state.metal!=='CU'){ $('cyclecard').style.display='none'; return; }
+  $('cyclecard').style.display='';
+  const T = A.cycles_tbl;
+  const nHist = T.length-1;
+  const avgL = T.slice(0,nHist).reduce((a,r)=>a+r.avg_long,0)/Math.max(nHist,1);
+  const avgS = T.slice(0,nHist).reduce((a,r)=>a+r.avg_short,0)/Math.max(nHist,1);
+  // residual OI chart: 总持仓−前20 (当月), current vs previous cycle aligned by sessions-to-delivery
+  const R = A.resid;
+  if(R && R.cycles && Object.keys(R.cycles).length){
+    const cN = Object.keys(R.cycles).sort();
+    const curC = cN[cN.length-1], prevC = cN.length>1? cN[cN.length-2] : null;
+    const ds14 = [
+      {label:curC+' OI−top20 LONG 本月',data:R.cycles[curC].rl,borderColor:'#2ca02c',pointRadius:2,borderWidth:2.5},
+      {label:curC+' OI−top20 SHORT 本月',data:R.cycles[curC].rs,borderColor:'#d62728',pointRadius:2,borderWidth:2.5}];
+    if(prevC){
+      ds14.push({label:prevC+' LONG 上月同期',data:R.cycles[prevC].rl,borderColor:'#2ca02c',borderDash:[6,4],pointRadius:0,borderWidth:1.5});
+      ds14.push({label:prevC+' SHORT 上月同期',data:R.cycles[prevC].rs,borderColor:'#d62728',borderDash:[6,4],pointRadius:0,borderWidth:1.5});
+    }
+    if(R.avg3 && R.avg3.n){
+      ds14.push({label:'近'+R.avg3.n+'周期均值 LONG 3m-avg',data:R.avg3.rl,borderColor:'#7f7f7f',borderDash:[2,3],pointRadius:0,borderWidth:1.8});
+      ds14.push({label:'近'+R.avg3.n+'周期均值 SHORT 3m-avg',data:R.avg3.rs,borderColor:'#c49c00',borderDash:[2,3],pointRadius:0,borderWidth:1.8});
+    }
+    mkChart('c14',{type:'line',data:{labels:R.tags,datasets:ds14},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{boxWidth:12,font:{size:10.5}}},
+          title:{display:true,text:'当月剩余持仓 Residual OI (官方总持仓−前20) — 本周期 vs 上月同期, 按距交割对齐',font:{size:12}}},
+        scales:{y:{title:{display:true,text:'lots'}},x:{title:{display:true,text:'sessions to delivery month (P=before, I=into)'}}}}});
+  }
+  // diff brief: current cycle vs 3-month-before average, per aligned session
+  $('gresid').innerHTML='';
+  if(R && R.avg3 && R.avg3.n && R.cycles){
+    const cN2 = Object.keys(R.cycles).sort();
+    const cc = cN2[cN2.length-1], cur = R.cycles[cc], av = R.avg3;
+    const hist = av.cycles || [];
+    const rows = [];
+    R.tags.forEach((t,i)=>{
+      const cl=cur.rl[i], cs=cur.rs[i], al=av.rl[i], as2=av.rs[i];
+      if(cl==null && cs==null) return;
+      const n = hist.filter(h=>R.cycles[h] && R.cycles[h].rl[i]!=null).length;
+      const f = v=> v==null?'—':Math.round(v).toLocaleString();
+      const x = (a,b)=> (a==null||b==null||!b)?'—':(a/b).toFixed(2)+'×';
+      rows.push([t, f(cl), f(al), (cl!=null&&al!=null? (cl-al>=0?'+':'')+Math.round(cl-al).toLocaleString():'—'), x(cl,al),
+                    f(cs), f(as2), (cs!=null&&as2!=null? (cs-as2>=0?'+':'')+Math.round(cs-as2).toLocaleString():'—'), x(cs,as2), n]);
+    });
+    new gridjs.Grid({columns:['距交割','本月 L','3月均 L','ΔL','×L','本月 S','3月均 S','ΔS','×S','n周期'],
+      data:rows, pagination:{limit:10},
+      style:{td:{padding:'4px 7px',fontSize:'11.5px'},th:{padding:'5px 7px',fontSize:'11px'}}}).render($('gresid'));
+    const nd = document.createElement('div'); nd.className='note';
+    nd.innerHTML='<b>差异简报 Diff brief:</b> 本月('+cc+')剩余持仓 vs 近'+av.n+'个周期('+hist.join('/')+')均值。×= 本月/均值倍数；n周期 = 该对齐点有数据的历史周期数（'+(hist[0]||'')+'、'+(hist[1]||'')+' 仅有交割窗口附近数据，P-3之前均值仅含 '+(hist[hist.length-1]||'')+'）。'
+      +'Current cycle vs mean of prior ≤3 cycles; × = current/avg multiple; n = prior cycles with data at that aligned session (earlier cycles only cover the delivery window, so tags before P-3 average over '+(hist[hist.length-1]||'')+' only).';
+    $('gresid').appendChild(nd);
+  }
+  $('gcycles').innerHTML='';
+  if(R && R.series){
+    const rd2 = Object.keys(R.series).sort().reverse();
+    new gridjs.Grid({columns:['Date','Total OI','Top20 L','Top20 S','OI−T20 L','OI−T20 S'],
+      data:rd2.map(d=>{const [rl,rs,tot]=R.series[d];
+        return [d, tot.toLocaleString(), (tot-rl).toLocaleString(), (tot-rs).toLocaleString(), rl.toLocaleString(), rs.toLocaleString()];}),
+      sort:true, pagination:{limit:10},
+      style:{td:{padding:'4px 7px',fontSize:'11.5px'},th:{padding:'5px 7px',fontSize:'11px'}}}).render($('gcycles'));
+  }
+}
+function setStatus(){
+  const asof = BASELINE.asof || '—';
+  $('status').innerHTML = `<span class="ok">●</span> Data through <b>${asof}</b> — refreshed automatically every weekday evening (18:30) after SHFE publishes daily rankings. Re-open this page to see the latest.`;
+}
+$('metal').onchange = e=>{ state.metal=e.target.value; render(); };
+$('period').onchange = e=>{ state.period=e.target.value; localStorage.setItem('shfe_period',state.period); render(); };
+$('lsscope').onchange = e=>{ state.ls=e.target.value; render(); };
+$('csv').onchange = e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ const m=parsePremCsv(rd.result);
+    if(m && Object.keys(m).length>5){ userPremium=m; localStorage.setItem('shfe_prem_ovr',JSON.stringify(m)); render(); }
+    else alert('Could not parse CSV. Use two columns: date (e.g. 2026-08-12, 2026/8/12 or 8/12/2026) and premium number, at least 6 rows.'); };
+  rd.readAsText(f);
+};
+$('clearovr').onclick = ()=>{ userPremium=null; localStorage.removeItem('shfe_prem_ovr'); render(); };
+$('selproven').onclick = ()=>{
+  const rec = BASELINE.delivery_record||[];
+  const proven = new Set(rec.filter(r=>r.cycles>=3).map(r=>r.name));
+  const tracked = Object.keys(BASELINE.metals[state.metal].brokers);
+  const sel = tracked.filter(b=>proven.has(b)||proven.has(ALIAS[b]||''));
+  if(!sel.length){ alert('No tracked broker meets the ≥3-cycle delivery record.'); return; }
+  setSmelter(state.metal, sel); render();
+};
+$('period').value = state.period;
+render();
+renderRecord();
+setStatus();
+</script>
+</body>
+</html>
