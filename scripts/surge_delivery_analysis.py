@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
 """Copper: price-surge vs delivery-broker OI; delivery-month OI vs warrants/backwardation/premium."""
-import json
+import json, os
 import numpy as np
 import pandas as pd
-from scipy import stats
 
-D = '/sessions/optimistic-pensive-archimedes/mnt/outputs/data'
+D = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+
+def _linreg(x, y):
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    r = float(np.corrcoef(x, y)[0, 1])
+    slope = r * y.std() / x.std() if x.std() else 0.0
+    return slope, float(y.mean() - slope * x.mean()), r
+
+def _pearson(x, y):
+    return float(np.corrcoef(np.asarray(x, float), np.asarray(y, float))[0, 1])
 SMELTER = ['金瑞期货', '铜冠金源', '建信期货', '五矿期货']
 
 mt = pd.read_csv(f'{D}/master_totals.csv', dtype={'date': str})
@@ -115,8 +123,8 @@ if len(ev):
 dchg = dss.diff().shift(-1)  # next-day change
 mask = zs.notna() & dchg.notna()
 if mask.sum() > 30:
-    slope, icept, r, p, se = stats.linregress(zs[mask], dchg[mask])
-    print(f"\nRegression Δ(front short, T+1) = {icept:+.0f} + {slope:+.0f}·z   (r={r:+.2f}, p={p:.3f}, n={mask.sum()})")
+    slope, icept, r = _linreg(zs[mask], dchg[mask])
+    print(f"\nRegression Δ(front short, T+1) = {icept:+.0f} + {slope:+.0f}·z   (r={r:+.2f}, n={mask.sum()})")
     up = zs[mask] > 1
     if up.sum() > 5:
         print(f"When z>+1: avg next-day smelter short change {dchg[mask][up].mean():+.0f} lots (n={up.sum()})")
@@ -172,10 +180,10 @@ for contract, g in tot_s.groupby('contract'):
 cyc = pd.DataFrame(rows).sort_values('cycle')
 print(cyc.to_string(index=False))
 if len(cyc) > 8:
-    r1, p1 = stats.pearsonr(cyc.oi_pre_t, cyc.prem_chg)
-    r2, p2 = stats.pearsonr(cyc.oi_pre_t, cyc.prem_peak)
-    print(f"\ncorr(pre-delivery front OI, premium change into delivery) = {r1:+.2f} (p={p1:.3f})")
-    print(f"corr(pre-delivery front OI, peak premium around delivery)  = {r2:+.2f} (p={p2:.3f})")
+    r1 = _pearson(cyc.oi_pre_t, cyc.prem_chg)
+    r2 = _pearson(cyc.oi_pre_t, cyc.prem_peak)
+    print(f"\ncorr(pre-delivery front OI, premium change into delivery) = {r1:+.2f}")
+    print(f"corr(pre-delivery front OI, peak premium around delivery)  = {r2:+.2f}")
     hi = cyc[cyc.oi_pre_t > cyc.oi_pre_t.quantile(0.75)]
     lo = cyc[cyc.oi_pre_t < cyc.oi_pre_t.quantile(0.25)]
     print(f"High-OI cycles (top quartile): avg prem change {hi.prem_chg.mean():+.0f}, peak {hi.prem_peak.mean():.0f}")
